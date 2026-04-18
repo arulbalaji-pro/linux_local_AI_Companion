@@ -1,0 +1,4 @@
+#!/bin/bash
+
+uvicorn server:app --host 0.0.0.0 --port 5000 --ssl-certfile=192.168.29.151+1.pem --ssl-keyfile=192.168.29.151+1-key.pem
+

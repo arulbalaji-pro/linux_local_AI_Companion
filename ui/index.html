@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Linux AI Companion</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body {
+      margin: 0;
+      background-color: #000;
+      color: #00ff66;
+      font-family: "Courier New", monospace;
+      text-align: center;
+      padding-top: 60px;
+    }
+
+    h2 {
+      color: #00ff66;
+      font-weight: normal;
+      text-shadow: 0 0 5px #00ff66;
+      animation: flicker 1.5s infinite;
+    }
+
+    button {
+      background: transparent;
+      border: 1px solid #00ff66;
+      color: #00ff66;
+      padding: 10px 20px;
+      font-family: monospace;
+      cursor: pointer;
+      margin-top: 20px;
+      transition: 0.2s;
+    }
+
+    button:hover {
+      background: #00ff66;
+      color: #000;
+    }
+
+    p {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #00ff66;
+      text-shadow: 0 0 3px #00ff66;
+      animation: flicker 2s infinite;
+    }
+
+    audio {
+      margin-top: 20px;
+      filter: invert(1);
+    }
+
+    /* Flicker effect */
+    @keyframes flicker {
+      0% { opacity: 1; }
+      2% { opacity: 0.4; }
+      4% { opacity: 1; }
+      8% { opacity: 0.7; }
+      10% { opacity: 1; }
+      70% { opacity: 0.9; }
+      100% { opacity: 1; }
+    }
+
+    /* subtle scanline effect */
+    body::before {
+      content: "";
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 255, 102, 0.03),
+        rgba(0, 255, 102, 0.03) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>Linux AI Companion</h2>
+
+  <button id="recordBtn">Start Recording</button>
+  <p id="status">Idle</p>
+
+  <audio id="player" controls></audio>
+
+  <script src="app.js"></script>
+
+</body>
+</html>
