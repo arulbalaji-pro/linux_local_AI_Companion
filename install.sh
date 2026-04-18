@@ -8,12 +8,12 @@ echo "🚀 Installing AI Companion Stack"
 echo "===================================="
 
 # -------------------------
-# 1. Python venv (INSIDE voice-server)
+# 1. Python venv
 # -------------------------
-echo "📦 Setting up Python venv inside voice-server..."
+echo "📦 Setting up Python venv..."
 
-python3 -m venv voice-server/venv
-source voice-server/venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 
 pip install --upgrade pip
 
@@ -22,7 +22,6 @@ if [ -f voice-server/requirements.txt ]; then
 fi
 
 pip install uvicorn fastapi
-
 
 # -------------------------
 # 2. Whisper.cpp install
@@ -36,11 +35,10 @@ fi
 git clone https://github.com/ggerganov/whisper.cpp.git
 
 echo "⚙️ Building whisper.cpp..."
-cd whisper.cpp
 
+cd whisper.cpp
 cmake -B build
 cmake --build build -j
-
 cd ..
 
 # -------------------------
@@ -49,7 +47,6 @@ cd ..
 echo "📥 Downloading Whisper models..."
 
 mkdir -p whisper.cpp/models
-
 cd whisper.cpp/models
 
 # Only models you showed
@@ -75,7 +72,6 @@ cd piper
 
 # Download prebuilt Piper (recommended approach)
 wget -O piper.tar.gz https://github.com/rhasspy/piper/releases/latest/download/piper_linux_x86_64.tar.gz
-
 tar -xvzf piper.tar.gz
 rm piper.tar.gz
 
@@ -84,7 +80,7 @@ rm piper.tar.gz
 if [ -f ./piper ]; then
     chmod +x ./piper
 else
-    echo "Fixing Piper Alternate path binary"
+    echo "Fixing permission for piper"
     find . -type f -path '*/piper/piper' -exec chmod +x {} \;
 fi
 
