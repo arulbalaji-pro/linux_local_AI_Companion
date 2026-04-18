@@ -88,6 +88,28 @@ if grep -q "../whisper.cpp/build/bin/whisper-cli" $SERVER_FILE; then
 fi
 
 # ----------------------------
+# 7. Whisper model setup
+# ----------------------------
+echo "🧠 Setting up Whisper model..."
+
+cd whisper.cpp
+
+mkdir -p models
+
+MODEL_PATH="models/ggml-base.en.bin"
+
+if [ ! -f "$MODEL_PATH" ]; then
+    echo "⬇️ Downloading Whisper base.en model..."
+    wget -O $MODEL_PATH https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+else
+    echo "✔ Whisper model already exists"
+fi
+
+cd ..
+
+echo "✔ Whisper model ready: $MODEL_PATH"
+
+# ----------------------------
 # 6. Done
 # ----------------------------
 echo ""
