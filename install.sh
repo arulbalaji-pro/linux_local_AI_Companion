@@ -1,62 +1,20 @@
 #!/bin/bash
-
 set -e
 
-echo "🚀 Installing Linux AI Companion (FULL AUTO SETUP)..."
-
-BASE_DIR=$(pwd)
-
-# ----------------------------
-# 1. Git submodules / whisper.cpp
-# ----------------------------
-echo "📦 Checking whisper.cpp..."
-
-if [ ! -d "whisper.cpp/.git" ]; then
-    echo "⬇️ Cloning whisper.cpp..."
-    rm -rf whisper.cpp
-    git clone https://github.com/ggerganov/whisper.cpp.git whisper.cpp
-else
-    echo "✔ whisper.cpp already exists"
-fi
+echo "==================================="
+echo "🚀 AI Voice Companion Installer"
+echo "==================================="
 
 # ----------------------------
-# 2. Build whisper.cpp
+# 1. System checks
 # ----------------------------
-echo "⚙️ Building whisper.cpp..."
-
-cd whisper.cpp
-
-cmake -B build
-cmake --build build -j
-
-# detect binary
-WHISPER_BIN=""
-
-if [ -f "build/bin/whisper-cli" ]; then
-    WHISPER_BIN="whisper-cli"
-elif [ -f "build/bin/main" ]; then
-    WHISPER_BIN="main"
-else
-    echo "❌ Whisper binary not found!"
-    exit 1
-fi
-
-echo "✔ Whisper binary detected: $WHISPER_BIN"
-
-cd ..
+echo "🔧 Checking Python..."
+python3 --version
 
 # ----------------------------
-# 3. Git LFS setup
+# 2. Create venv
 # ----------------------------
-echo "📦 Setting up Git LFS..."
-
-git lfs install
-git lfs pull
-
-# ----------------------------
-# 4. Python environment
-# ----------------------------
-echo "🐍 Setting up Python venv..."
+echo "🐍 Creating virtual environment..."
 
 if [ ! -d "venv" ]; then
     python3 -m venv venv
@@ -64,53 +22,82 @@ fi
 
 source venv/bin/activate
 
+# ----------------------------
+# 3. Upgrade pip
+# ----------------------------
+echo "📦 Upgrading pip..."
 pip install --upgrade pip
 
-pip install fastapi uvicorn requests numpy soundfile websockets python-multipart
+# ----------------------------
+# 4. Install Python deps
+# ----------------------------
+echo "📦 Installing dependencies..."
+pip install fastapi uvicorn[standard] requests numpy soundfile websockets python-multipart
 
 # ----------------------------
-# 5. Fix whisper path dynamically
+# 5. whisper.cpp setup
 # ----------------------------
-echo "🔧 Fixing server config..."
+echo "🧠 Setting up whisper.cpp..."
 
-SERVER_FILE="voice-server/server.py"
-
-if grep -q whisper-cli $SERVER_FILE; then
-    sed -i "s|whisper-cli|$WHISPER_BIN|g" $SERVER_FILE
+if [ ! -d "whisper.cpp" ]; then
+    echo "❌ whisper.cpp missing! aborting"
+    exit 1
 fi
-
-if grep -q "../whisper.cpp/build/bin/main" $SERVER_FILE; then
-    sed -i "s|../whisper.cpp/build/bin/main|../whisper.cpp/build/bin/$WHISPER_BIN|g" $SERVER_FILE
-fi
-
-if grep -q "../whisper.cpp/build/bin/whisper-cli" $SERVER_FILE; then
-    sed -i "s|../whisper.cpp/build/bin/whisper-cli|../whisper.cpp/build/bin/$WHISPER_BIN|g" $SERVER_FILE
-fi
-
-# ----------------------------
-# 7. Whisper model setup
-# ----------------------------
-echo "🧠 Setting up Whisper model..."
 
 cd whisper.cpp
 
+# build whisper if not built
+if [ ! -d "build" ]; then
+    echo "⚙️ Building whisper.cpp..."
+    cmake -B build
+    cmake --build build -j
+fi
+
+# ----------------------------
+# 6. Whisper model setup (STRICT: only your models)
+# ----------------------------
+echo "📥 Setting up Whisper models..."
+
 mkdir -p models
 
-MODEL_PATH="models/ggml-base.en.bin"
+# ONLY USE MODELS YOU ALREADY HAVE LISTED
+MODEL_SOURCE="../whisper.cpp/models"
 
-if [ ! -f "$MODEL_PATH" ]; then
-    echo "⬇️ Downloading Whisper base.en model..."
-    wget -O $MODEL_PATH https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-else
-    echo "✔ Whisper model already exists"
+PREFERRED_MODELS=(
+  "ggml-base.en.bin"
+  "ggml-small.en.bin"
+  "ggml-medium.en.bin"
+  "ggml-tiny.en.bin"
+)
+
+MODEL_FOUND=""
+
+for m in "${PREFERRED_MODELS[@]}"; do
+    if [ -f "$MODEL_SOURCE/$m" ]; then
+        echo "✔ Found model: $m"
+        cp "$MODEL_SOURCE/$m" models/
+        MODEL_FOUND=$m
+        break
+    fi
+done
+
+if [ -z "$MODEL_FOUND" ]; then
+    echo "❌ No valid whisper model found!"
+    echo "👉 Please ensure at least one model exists in whisper.cpp/models/"
+    exit 1
 fi
+
+echo "✔ Using Whisper model: $MODEL_FOUND"
 
 cd ..
 
-echo "✔ Whisper model ready: $MODEL_PATH"
+# ----------------------------
+# 7. Permissions
+# ----------------------------
+chmod +x voice-server/init-server || true
 
 # ----------------------------
-# 6. Done
+# 8. Done
 # ----------------------------
 echo ""
 echo "✅ INSTALL COMPLETE"
