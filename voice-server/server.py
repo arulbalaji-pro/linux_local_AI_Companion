@@ -7,6 +7,8 @@ import subprocess
 import requests
 import uuid
 import os
+import traceback
+import threading
 
 app = FastAPI()
 
@@ -22,9 +24,8 @@ app.add_middleware(
 )
 
 # ----------------------------
-# CONFIG (Absolute Path Fix)
+# CONFIG
 # ----------------------------
-# This ensures we are pointing to the exact location you verified with 'ls'
 BASE_PATH = "/home/arul/llamafiles-companion-voice-system"
 
 LLAMA_URL = "http://127.0.0.1:8081/v1/chat/completions"
@@ -35,23 +36,77 @@ WHISPER_MODEL = f"{BASE_PATH}/whisper.cpp/models/ggml-tiny.en.bin"
 PIPER_PATH = f"{BASE_PATH}/piper/piper"
 PIPER_MODEL = f"{BASE_PATH}/piper/en_US-lessac-medium.onnx"
 
+llm_lock = threading.Lock()
+
+# ----------------------------
+# CHAT MEMORY
+# ----------------------------
+CHAT_LOG = "chat_log.txt"
+MAX_HISTORY = 6
+
+def load_history():
+    if not os.path.exists(CHAT_LOG):
+        return []
+
+    with open(CHAT_LOG, "r") as f:
+        lines = f.readlines()
+
+    history = []
+    for line in lines[-MAX_HISTORY * 2:]:
+        if line.startswith("USER:"):
+            history.append({"role": "user", "content": line.replace("USER:", "").strip()})
+        elif line.startswith("AI:"):
+            history.append({"role": "assistant", "content": line.replace("AI:", "").strip()})
+
+    return history
+
+
+def save_turn(user, ai):
+    with open(CHAT_LOG, "a") as f:
+        f.write(f"USER: {user}\n")
+        f.write(f"AI: {ai}\n")
+
+
+# ----------------------------
+# LOGGING (EMOJI VERSION)
+# ----------------------------
+def log(tag, msg):
+    icons = {
+        "AUDIO-IN": "🎧",
+        "WHISPER": "🧍",
+        "WHISPER-RAW": "📜",
+        "CONTINUE": "🔁",
+        "LONGFORM": "📖",
+        "AI": "🤖",
+        "ERROR": "❌"
+    }
+
+    icon = icons.get(tag, "ℹ️")
+    print(f"{icon} [{tag}] {msg}", flush=True)
+
+
 # ----------------------------
 # VOICE API
 # ----------------------------
 @app.post("/voice")
 async def voice(file: UploadFile = File(...)):
+
     uid = str(uuid.uuid4())
-    # Save temp files in the current voice-server directory
+
     input_path = f"input_{uid}.wav"
     output_path = f"out_{uid}.wav"
 
+    # ----------------------------
+    # AUDIO SAVE
+    # ----------------------------
     with open(input_path, "wb") as f:
         f.write(await file.read())
 
-    print(f"🎧 Saved: {input_path}")
+    log("AUDIO-IN", input_path)
 
-    # 1. Whisper STT
-    # We use a try block to catch the PermissionError if it persists
+    # ----------------------------
+    # WHISPER
+    # ----------------------------
     try:
         result = subprocess.run([
             WHISPER_PATH,
@@ -59,40 +114,125 @@ async def voice(file: UploadFile = File(...)):
             "-f", input_path,
             "--no-timestamps"
         ], capture_output=True, text=True, check=True)
-        
+
+        log("WHISPER-RAW", result.stdout)
+
         lines = result.stdout.strip().split("\n")
         user_text = lines[-1].strip() if lines else ""
-    except Exception as e:
-        return JSONResponse({"error": f"Whisper Error: {str(e)}"}, status_code=500)
 
-    print(f"🧍 USER: {user_text}")
+    except Exception:
+        traceback.print_exc()
+        return JSONResponse({"error": "Whisper failed"}, status_code=500)
+
+    log("WHISPER", user_text)
 
     if not user_text:
         return JSONResponse({"error": "No speech detected"}, status_code=400)
 
-    # 2. LLM (Rachel)
+    user_text = user_text[:300]
+
+    # ----------------------------
+    # CONTINUE DETECTION
+    # ----------------------------
+    text_lower = user_text.lower()
+
+    force_continue = any(
+        k in text_lower
+        for k in ["continue", "go on", "keep going", "carry on", "keep talking"]
+    )
+
+    long_form = any(
+        k in text_lower
+        for k in ["one minute", "detailed", "explain", "elaborate", "talk about"]
+    )
+
+    log("CONTINUE", force_continue)
+    log("LONGFORM", long_form)
+
+    # ----------------------------
+    # MEMORY
+    # ----------------------------
+    history = load_history()
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+			"You are Rachel, a warm emotionally intelligent AI girlfriend. "
+			"You are expressive and naturally detailed when explaining things. "
+			"Do not be overly short unless the user asks for a short answer. "
+			"Speak naturally in flowing sentences. "
+			"When a topic requires explanation, you may expand your response clearly and thoughtfully."
+		)
+        }
+    ]
+
+    messages.extend(history)
+
+    if force_continue:
+        messages.append({
+            "role": "user",
+            "content": "Continue naturally from your last response without repeating."
+        })
+    else:
+        messages.append({"role": "user", "content": user_text})
+
+    # ----------------------------
+    # TOKEN CONTROL (CORE FIX)
+    # ----------------------------
+    base_tokens = 160
+    continue_tokens = 120
+    long_tokens = 180
+
+    max_tokens = base_tokens
+
+    if force_continue:
+        max_tokens = continue_tokens
+
+    if long_form:
+        max_tokens = long_tokens
+
     payload = {
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are rachel, a romantic, slightly flirty AI girlfriend. Speak naturally and casually. Keep replies short."
-            },
-            {"role": "user", "content": user_text}
-        ],
-        "temperature": 0.8,
-        "max_tokens": 80
+        "messages": messages,
+        "temperature": 0.6,
+        "top_p": 0.9,
+        "max_tokens": max_tokens
     }
 
-    try:
-        r = requests.post(LLAMA_URL, json=payload, timeout=15)
-        reply = r.json()["choices"][0]["message"]["content"]
-        reply = reply.replace("<|eot_id|>", "").strip()
-    except Exception as e:
-        return JSONResponse({"error": f"LLM Error: {str(e)}"}, status_code=500)
+    # ----------------------------
+    # LLM CALL
+    # ----------------------------
+    with llm_lock:
+        try:
+            r = requests.post(LLAMA_URL, json=payload, timeout=50)
+            r.raise_for_status()
 
-    print(f"🤖 AI: {reply}")
+            data = r.json()
 
-    # 3. Piper TTS
+            reply = (
+                data.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+
+            reply = reply.replace("<|eot_id|>", "").strip()
+
+            if not reply:
+                reply = "..."
+
+            reply = reply[:400]
+
+        except Exception:
+            traceback.print_exc()
+            return JSONResponse({"error": "LLM failed"}, status_code=500)
+
+    log("AI", reply)
+
+    save_turn(user_text, reply)
+
+    # ----------------------------
+    # PIPER TTS
+    # ----------------------------
     try:
         subprocess.run([
             PIPER_PATH,
@@ -101,14 +241,30 @@ async def voice(file: UploadFile = File(...)):
             "--noise_scale", "0.7",
             "--noise_w", "0.4",
             "--output_file", output_path
-        ], input=reply.encode(), check=True)
-    except subprocess.CalledProcessError as e:
-        return JSONResponse({"error": f"TTS Permission/Execution Error: {str(e)}"}, status_code=500)
+        ],
+        input=reply.encode("utf-8"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=60,
+        check=True)
+
+    except Exception:
+        traceback.print_exc()
+        return JSONResponse({"error": "Piper failed"}, status_code=500)
+
+    # ----------------------------
+    # CLEANUP
+    # ----------------------------
+    try:
+        os.remove(input_path)
+    except:
+        pass
 
     return FileResponse(output_path, media_type="audio/wav")
 
+
 # ----------------------------
-# STATIC UI
+# UI
 # ----------------------------
 UI_PATH = f"{BASE_PATH}/ui"
 app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")
