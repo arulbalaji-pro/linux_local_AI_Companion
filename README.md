@@ -10,8 +10,8 @@ A local AI voice assistant system with STT (Whisper.cpp), TTS (Piper), and FastA
 
 ## 📺 Installation Demo
 
-[![Watch Video](https://img.youtube.com/vi/ix-plCzcE6s/0.jpg)](https://www.youtube.com/watch?v=ix-plCzcE6s)
-
+Watch the full demo here:  
+https://www.youtube.com/watch?v=ix-plCzcE6s
 
 ## 📦 Installation
 
