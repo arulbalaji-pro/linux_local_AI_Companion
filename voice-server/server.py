@@ -9,6 +9,7 @@ import uuid
 import os
 import traceback
 import threading
+import re
 
 app = FastAPI()
 
@@ -26,7 +27,7 @@ app.add_middleware(
 # ----------------------------
 # CONFIG
 # ----------------------------
-BASE_PATH = "/home/arul/llamafiles-companion-voice-system"
+BASE_PATH = "/home/arul/test-ai-git2/linux_local_AI_Companion"
 
 LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
@@ -36,13 +37,16 @@ WHISPER_MODEL = f"{BASE_PATH}/whisper.cpp/models/ggml-tiny.en.bin"
 PIPER_PATH = f"{BASE_PATH}/piper/piper"
 PIPER_MODEL = f"{BASE_PATH}/piper/en_US-lessac-medium.onnx"
 
+EMOTION_AUDIO_DIR = f"{BASE_PATH}/voice-server/emotional-audios"
+
 llm_lock = threading.Lock()
 
 # ----------------------------
-# CHAT MEMORY
+# MEMORY
 # ----------------------------
 CHAT_LOG = "chat_log.txt"
 MAX_HISTORY = 6
+
 
 def load_history():
     if not os.path.exists(CHAT_LOG):
@@ -57,7 +61,6 @@ def load_history():
             history.append({"role": "user", "content": line.replace("USER:", "").strip()})
         elif line.startswith("AI:"):
             history.append({"role": "assistant", "content": line.replace("AI:", "").strip()})
-
     return history
 
 
@@ -78,33 +81,148 @@ def log(tag, msg):
         "CONTINUE": "🔁",
         "LONGFORM": "📖",
         "AI": "🤖",
+        "EMOTION": "💖",
         "ERROR": "❌"
     }
-    icon = icons.get(tag, "ℹ️")
-    print(f"{icon} [{tag}] {msg}", flush=True)
+    print(f"{icons.get(tag,'ℹ️')} [{tag}] {msg}", flush=True)
 
 
 # ----------------------------
-# VOICE API
+# EMOTION AUDIO MAP
+# ----------------------------
+def get_emotion_audio(action: str):
+    a = action.lower()
+    if "giggle" in a:
+        return "giggles1.wav"
+    if "laugh" in a:
+        return "laughing1.mp3"
+    if "sigh" in a:
+        return "sighs1.mp3"
+    return None
+
+
+# ----------------------------
+# AUDIO NORMALIZATION
+# ----------------------------
+def normalize_audio(input_path, output_path):
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-ar", "22050",
+        "-ac", "1",
+        "-c:a", "pcm_s16le",
+        output_path
+    ], check=True)
+
+
+# ----------------------------
+# TIMELINE PARSER
+# ----------------------------
+def build_timeline(text):
+    pattern = re.compile(r"\*([^*]+)\*")
+    parts = []
+    last = 0
+
+    for m in pattern.finditer(text):
+        start, end = m.span()
+        action = m.group(1)
+
+        if start > last:
+            t = text[last:start].strip()
+            if t:
+                parts.append(("text", t))
+
+        parts.append(("emotion", action))
+        last = end
+
+    if last < len(text):
+        t = text[last:].strip()
+        if t:
+            parts.append(("text", t))
+
+    return parts
+
+
+# ----------------------------
+# TTS
+# ----------------------------
+def tts(text, out_file):
+    subprocess.run([
+        PIPER_PATH,
+        "--model", PIPER_MODEL,
+        "--output_file", out_file
+    ],
+    input=text.encode("utf-8"),
+    check=True)
+
+    return out_file
+
+
+# ----------------------------
+# AUDIO PIPELINE
+# ----------------------------
+def generate_audio(reply, uid):
+    timeline = build_timeline(reply)
+
+    tmp_dir = f"/tmp/voice_{uid}"
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    segments = []
+    idx = 0
+
+    for kind, content in timeline:
+
+        if kind == "text":
+            out = os.path.join(tmp_dir, f"tts_{idx}.wav")
+            tts(content, out)
+            segments.append(out)
+            idx += 1
+
+        elif kind == "emotion":
+            audio = get_emotion_audio(content)
+            if audio:
+                src = os.path.join(EMOTION_AUDIO_DIR, audio)
+
+                if os.path.exists(src):
+                    norm = os.path.join(tmp_dir, f"emotion_{idx}.wav")
+                    normalize_audio(src, norm)
+                    segments.append(norm)
+
+    list_file = os.path.join(tmp_dir, "list.txt")
+
+    with open(list_file, "w") as f:
+        for s in segments:
+            f.write(f"file '{s}'\n")
+
+    final = f"final_{uid}.wav"
+
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", list_file,
+        "-c:a", "pcm_s16le",
+        "-ar", "22050",
+        "-ac", "1",
+        final
+    ], check=True)
+
+    return final
+
+
+# ----------------------------
+# VOICE ENDPOINT (UPDATED BRAIN LOGIC)
 # ----------------------------
 @app.post("/voice")
 async def voice(file: UploadFile = File(...)):
 
     uid = str(uuid.uuid4())
     input_path = f"input_{uid}.wav"
-    output_path = f"out_{uid}.wav"
 
-    # ----------------------------
-    # SAVE AUDIO
-    # ----------------------------
     with open(input_path, "wb") as f:
         f.write(await file.read())
 
-    log("AUDIO-IN", input_path)
-
-    # ----------------------------
-    # WHISPER
-    # ----------------------------
+    # ---------------- WHISPER ----------------
     try:
         result = subprocess.run([
             WHISPER_PATH,
@@ -115,8 +233,7 @@ async def voice(file: UploadFile = File(...)):
 
         log("WHISPER-RAW", result.stdout)
 
-        lines = result.stdout.strip().split("\n")
-        user_text = lines[-1].strip() if lines else ""
+        user_text = result.stdout.strip().split("\n")[-1].strip()
 
     except Exception:
         traceback.print_exc()
@@ -129,49 +246,39 @@ async def voice(file: UploadFile = File(...)):
 
     user_text = user_text[:300]
 
-    # ----------------------------
-    # CONTINUE DETECTION
-    # ----------------------------
+    # ---------------- CONTINUE + LONGFORM LOGIC ----------------
     text_lower = user_text.lower()
 
-    force_continue = any(
-        k in text_lower
-        for k in ["continue", "go on", "keep going", "carry on", "keep talking"]
-    )
+    force_continue = any(k in text_lower for k in [
+        "continue", "go on", "keep going", "carry on", "keep talking"
+    ])
 
-    long_form = any(
-        k in text_lower
-        for k in [
-            "one minute", "detailed", "explain", "elaborate",
-            "talk about", "essay", "long", "deep",
-            "in depth", "describe", "full", "everything"
-        ]
-    )
+    long_form = any(k in text_lower for k in [
+        "one minute", "detailed", "explain", "elaborate",
+        "talk about", "essay", "long", "deep",
+        "in depth", "describe", "full", "everything"
+    ])
 
     log("CONTINUE", force_continue)
     log("LONGFORM", long_form)
 
-    # ----------------------------
-    # MEMORY
-    # ----------------------------
+    # ---------------- MEMORY ----------------
     history = load_history()
 
     messages = [
         {
             "role": "system",
             "content": (
-                "You are Rachel, a romantic and playful girlfriend. "
-                "You speak naturally, casually, and emotionally like a real partner. "
-                "You stay in character and respond based on the user's tone."
+                "You are Rachel, a romantic, playful, emotionally expressive AI girlfriend. "
+                "You speak naturally like a real partner, casual but emotionally aware. "
+                "You respond warmly, sometimes teasingly, and maintain continuity in conversation."
             )
         }
     ]
 
     messages.extend(history)
 
-    # ----------------------------
-    # FIXED CONTINUE LOGIC
-    # ----------------------------
+    # ---------------- CONTINUE HANDLING ----------------
     if force_continue and history:
         last_ai = None
         for msg in reversed(history):
@@ -180,21 +287,16 @@ async def voice(file: UploadFile = File(...)):
                 break
 
         if last_ai:
-            messages.append({
-                "role": "assistant",
-                "content": last_ai
-            })
+            messages.append({"role": "assistant", "content": last_ai})
 
         messages.append({
             "role": "user",
-            "content": "Continue from exactly where you stopped. Do not repeat anything."
+            "content": "Continue exactly from where you stopped. Do not repeat anything."
         })
     else:
         messages.append({"role": "user", "content": user_text})
 
-    # ----------------------------
-    # TOKEN CONTROL
-    # ----------------------------
+    # ---------------- TOKEN CONTROL ----------------
     base_tokens = 160
     continue_tokens = 180
     long_tokens = 220
@@ -214,9 +316,7 @@ async def voice(file: UploadFile = File(...)):
         "max_tokens": max_tokens
     }
 
-    # ----------------------------
-    # LLM CALL
-    # ----------------------------
+    # ---------------- LLM CALL ----------------
     with llm_lock:
         try:
             r = requests.post(LLAMA_URL, json=payload, timeout=50)
@@ -241,49 +341,25 @@ async def voice(file: UploadFile = File(...)):
             traceback.print_exc()
             return JSONResponse({"error": "LLM failed"}, status_code=500)
 
-    # smoother speech
     reply = reply.replace("\n", " ")
 
     log("AI", reply)
 
     save_turn(user_text, reply[:200])
 
-    # ----------------------------
-    # PIPER TTS
-    # ----------------------------
-    try:
-        subprocess.run([
-            PIPER_PATH,
-            "--model", PIPER_MODEL,
-            "--length_scale", "1.1",
-            "--noise_scale", "0.7",
-            "--noise_w", "0.4",
-            "--output_file", output_path
-        ],
-        input=reply.encode("utf-8"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=60,
-        check=True)
+    # ---------------- AUDIO PIPELINE ----------------
+    final_audio = generate_audio(reply, uid)
 
-    except Exception:
-        traceback.print_exc()
-        return JSONResponse({"error": "Piper failed"}, status_code=500)
-
-    # ----------------------------
-    # CLEANUP
-    # ----------------------------
     try:
         os.remove(input_path)
     except:
         pass
 
-    return FileResponse(output_path, media_type="audio/wav")
+    return FileResponse(final_audio, media_type="audio/wav")
 
 
 # ----------------------------
 # UI
 # ----------------------------
 UI_PATH = f"{BASE_PATH}/ui"
-app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")
-
+app.mount("/ui", StaticFiles(directory=UI_PATH, html=True), name="ui")
