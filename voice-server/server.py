@@ -28,7 +28,7 @@ app.add_middleware(
 # ----------------------------
 BASE_PATH = "/home/arul/llamafiles-companion-voice-system"
 
-LLAMA_URL = "http://127.0.0.1:8081/v1/chat/completions"
+LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
 WHISPER_PATH = f"{BASE_PATH}/whisper.cpp/build/bin/whisper-cli"
 WHISPER_MODEL = f"{BASE_PATH}/whisper.cpp/models/ggml-tiny.en.bin"
@@ -68,7 +68,7 @@ def save_turn(user, ai):
 
 
 # ----------------------------
-# LOGGING (EMOJI VERSION)
+# LOGGING
 # ----------------------------
 def log(tag, msg):
     icons = {
@@ -80,7 +80,6 @@ def log(tag, msg):
         "AI": "🤖",
         "ERROR": "❌"
     }
-
     icon = icons.get(tag, "ℹ️")
     print(f"{icon} [{tag}] {msg}", flush=True)
 
@@ -92,12 +91,11 @@ def log(tag, msg):
 async def voice(file: UploadFile = File(...)):
 
     uid = str(uuid.uuid4())
-
     input_path = f"input_{uid}.wav"
     output_path = f"out_{uid}.wav"
 
     # ----------------------------
-    # AUDIO SAVE
+    # SAVE AUDIO
     # ----------------------------
     with open(input_path, "wb") as f:
         f.write(await file.read())
@@ -143,7 +141,11 @@ async def voice(file: UploadFile = File(...)):
 
     long_form = any(
         k in text_lower
-        for k in ["one minute", "detailed", "explain", "elaborate", "talk about"]
+        for k in [
+            "one minute", "detailed", "explain", "elaborate",
+            "talk about", "essay", "long", "deep",
+            "in depth", "describe", "full", "everything"
+        ]
     )
 
     log("CONTINUE", force_continue)
@@ -158,31 +160,44 @@ async def voice(file: UploadFile = File(...)):
         {
             "role": "system",
             "content": (
-			"You are Rachel, a warm emotionally intelligent AI girlfriend. "
-			"You are expressive and naturally detailed when explaining things. "
-			"Do not be overly short unless the user asks for a short answer. "
-			"Speak naturally in flowing sentences. "
-			"When a topic requires explanation, you may expand your response clearly and thoughtfully."
-		)
+                "You are Rachel, a romantic and playful girlfriend. "
+                "You speak naturally, casually, and emotionally like a real partner. "
+                "You stay in character and respond based on the user's tone."
+            )
         }
     ]
 
     messages.extend(history)
 
-    if force_continue:
+    # ----------------------------
+    # FIXED CONTINUE LOGIC
+    # ----------------------------
+    if force_continue and history:
+        last_ai = None
+        for msg in reversed(history):
+            if msg["role"] == "assistant":
+                last_ai = msg["content"]
+                break
+
+        if last_ai:
+            messages.append({
+                "role": "assistant",
+                "content": last_ai
+            })
+
         messages.append({
             "role": "user",
-            "content": "Continue naturally from your last response without repeating."
+            "content": "Continue from exactly where you stopped. Do not repeat anything."
         })
     else:
         messages.append({"role": "user", "content": user_text})
 
     # ----------------------------
-    # TOKEN CONTROL (CORE FIX)
+    # TOKEN CONTROL
     # ----------------------------
     base_tokens = 160
-    continue_tokens = 120
-    long_tokens = 180
+    continue_tokens = 180
+    long_tokens = 220
 
     max_tokens = base_tokens
 
@@ -194,7 +209,7 @@ async def voice(file: UploadFile = File(...)):
 
     payload = {
         "messages": messages,
-        "temperature": 0.6,
+        "temperature": 0.7,
         "top_p": 0.9,
         "max_tokens": max_tokens
     }
@@ -226,9 +241,12 @@ async def voice(file: UploadFile = File(...)):
             traceback.print_exc()
             return JSONResponse({"error": "LLM failed"}, status_code=500)
 
+    # smoother speech
+    reply = reply.replace("\n", " ")
+
     log("AI", reply)
 
-    save_turn(user_text, reply)
+    save_turn(user_text, reply[:200])
 
     # ----------------------------
     # PIPER TTS
@@ -268,3 +286,4 @@ async def voice(file: UploadFile = File(...)):
 # ----------------------------
 UI_PATH = f"{BASE_PATH}/ui"
 app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")
+
