@@ -362,4 +362,4 @@ async def voice(file: UploadFile = File(...)):
 # UI
 # ----------------------------
 UI_PATH = f"{BASE_PATH}/ui"
-app.mount("/ui", StaticFiles(directory=UI_PATH, html=True), name="ui")
+app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")
