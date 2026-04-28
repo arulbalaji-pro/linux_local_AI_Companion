@@ -180,13 +180,26 @@ def generate_audio(reply, uid):
 
         elif kind == "emotion":
             audio = get_emotion_audio(content)
+
             if audio:
+                # Known emotion → use audio clip
                 src = os.path.join(EMOTION_AUDIO_DIR, audio)
 
                 if os.path.exists(src):
                     norm = os.path.join(tmp_dir, f"emotion_{idx}.wav")
                     normalize_audio(src, norm)
                     segments.append(norm)
+                    idx += 1
+
+            else:
+                # Unknown action → treat as normal speech (remove asterisks)
+                clean_text = content.strip()
+
+                if clean_text:
+                    out = os.path.join(tmp_dir, f"tts_{idx}.wav")
+                    tts(clean_text, out)
+                    segments.append(out)
+                    idx += 1
 
     list_file = os.path.join(tmp_dir, "list.txt")
 
