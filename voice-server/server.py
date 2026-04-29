@@ -10,6 +10,7 @@ import os
 import traceback
 import threading
 import re
+import xml.etree.ElementTree as ET
 
 app = FastAPI()
 
@@ -36,13 +37,7 @@ WHISPER_MODEL = f"{BASE_PATH}/whisper.cpp/models/ggml-tiny.en.bin"
 
 PIPER_PATH = f"{BASE_PATH}/piper/piper"
 
-#commenting most generic AI robotic style piper voice model
-#PIPER_MODEL = f"{BASE_PATH}/piper/en_US-lessac-medium.onnx"
-
-#enabling more human like piper voice model
 PIPER_MODEL = f"{BASE_PATH}/piper/en_US-hfc_female-medium.onnx"
-
-#PIPER_MODEL = f"{BASE_PATH}/piper/en_US-amy-medium.onnx"
 
 EMOTION_AUDIO_DIR = f"{BASE_PATH}/voice-server/emotional-audios"
 
@@ -53,7 +48,6 @@ llm_lock = threading.Lock()
 # ----------------------------
 CHAT_LOG = "chat_log.txt"
 MAX_HISTORY = 6
-
 
 def load_history():
     if not os.path.exists(CHAT_LOG):
@@ -70,12 +64,10 @@ def load_history():
             history.append({"role": "assistant", "content": line.replace("AI:", "").strip()})
     return history
 
-
 def save_turn(user, ai):
     with open(CHAT_LOG, "a") as f:
         f.write(f"USER: {user}\n")
         f.write(f"AI: {ai}\n")
-
 
 # ----------------------------
 # LOGGING
@@ -93,7 +85,6 @@ def log(tag, msg):
     }
     print(f"{icons.get(tag,'ℹ️')} [{tag}] {msg}", flush=True)
 
-
 # ----------------------------
 # EMOTION AUDIO MAP
 # ----------------------------
@@ -107,7 +98,6 @@ def get_emotion_audio(action: str):
         return "sighs1.mp3"
     return None
 
-
 # ----------------------------
 # AUDIO NORMALIZATION
 # ----------------------------
@@ -120,7 +110,6 @@ def normalize_audio(input_path, output_path):
         "-c:a", "pcm_s16le",
         output_path
     ], check=True)
-
 
 # ----------------------------
 # TIMELINE PARSER
@@ -149,7 +138,6 @@ def build_timeline(text):
 
     return parts
 
-
 # ----------------------------
 # TTS
 # ----------------------------
@@ -163,7 +151,6 @@ def tts(text, out_file):
     check=True)
 
     return out_file
-
 
 # ----------------------------
 # AUDIO PIPELINE
@@ -189,7 +176,6 @@ def generate_audio(reply, uid):
             audio = get_emotion_audio(content)
 
             if audio:
-                # Known emotion → use audio clip
                 src = os.path.join(EMOTION_AUDIO_DIR, audio)
 
                 if os.path.exists(src):
@@ -197,9 +183,7 @@ def generate_audio(reply, uid):
                     normalize_audio(src, norm)
                     segments.append(norm)
                     idx += 1
-
             else:
-                # Unknown action → treat as normal speech (remove asterisks)
                 clean_text = content.strip()
 
                 if clean_text:
@@ -229,9 +213,8 @@ def generate_audio(reply, uid):
 
     return final
 
-
 # ----------------------------
-# VOICE ENDPOINT (UPDATED BRAIN LOGIC)
+# VOICE ENDPOINT
 # ----------------------------
 @app.post("/voice")
 async def voice(file: UploadFile = File(...)):
@@ -242,7 +225,6 @@ async def voice(file: UploadFile = File(...)):
     with open(input_path, "wb") as f:
         f.write(await file.read())
 
-    # ---------------- WHISPER ----------------
     try:
         result = subprocess.run([
             WHISPER_PATH,
@@ -252,7 +234,6 @@ async def voice(file: UploadFile = File(...)):
         ], capture_output=True, text=True, check=True)
 
         log("WHISPER-RAW", result.stdout)
-
         user_text = result.stdout.strip().split("\n")[-1].strip()
 
     except Exception:
@@ -266,7 +247,6 @@ async def voice(file: UploadFile = File(...)):
 
     user_text = user_text[:300]
 
-    # ---------------- CONTINUE + LONGFORM LOGIC ----------------
     text_lower = user_text.lower()
 
     force_continue = any(k in text_lower for k in [
@@ -282,7 +262,6 @@ async def voice(file: UploadFile = File(...)):
     log("CONTINUE", force_continue)
     log("LONGFORM", long_form)
 
-    # ---------------- MEMORY ----------------
     history = load_history()
 
     messages = [
@@ -298,7 +277,17 @@ async def voice(file: UploadFile = File(...)):
 
     messages.extend(history)
 
-    # ---------------- CONTINUE HANDLING ----------------
+    if long_form:
+        messages.append({
+            "role": "system",
+            "content": (
+                "When the user asks for detailed or long explanations, "
+                "you MUST give a long, continuous, in-depth response. "
+                "Avoid short replies, avoid asking questions back, and do not refuse. "
+                "Expand the topic clearly with examples, explanations, and natural flow."
+            )
+        })
+
     if force_continue and history:
         last_ai = None
         for msg in reversed(history):
@@ -316,18 +305,11 @@ async def voice(file: UploadFile = File(...)):
     else:
         messages.append({"role": "user", "content": user_text})
 
-    # ---------------- TOKEN CONTROL ----------------
-    base_tokens = 160
-    continue_tokens = 180
-    long_tokens = 220
-
-    max_tokens = base_tokens
-
+    max_tokens = 160
     if force_continue:
-        max_tokens = continue_tokens
-
+        max_tokens = 180
     if long_form:
-        max_tokens = long_tokens
+        max_tokens = 250
 
     payload = {
         "messages": messages,
@@ -336,38 +318,25 @@ async def voice(file: UploadFile = File(...)):
         "max_tokens": max_tokens
     }
 
-    # ---------------- LLM CALL ----------------
     with llm_lock:
         try:
-            r = requests.post(LLAMA_URL, json=payload, timeout=50)
+            r = requests.post(LLAMA_URL, json=payload, timeout=100)
             r.raise_for_status()
-
             data = r.json()
 
-            reply = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
-
-            reply = reply.replace("<|eot_id|>", "").strip()
-
-            if not reply:
-                reply = "..."
-
-            reply = reply[:400]
+            reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            reply = reply.replace("<|eot_id|>", "").strip() or "..."
+            reply = reply[:1200]
 
         except Exception:
             traceback.print_exc()
             return JSONResponse({"error": "LLM failed"}, status_code=500)
 
     reply = reply.replace("\n", " ")
-
     log("AI", reply)
 
-    save_turn(user_text, reply[:200])
+    save_turn(user_text, reply)
 
-    # ---------------- AUDIO PIPELINE ----------------
     final_audio = generate_audio(reply, uid)
 
     try:
@@ -377,10 +346,9 @@ async def voice(file: UploadFile = File(...)):
 
     return FileResponse(final_audio, media_type="audio/wav")
 
-
-# -----------------------------------------
-# UI Enhancement - Display Chat Logs on UI
-# -----------------------------------------
+# ----------------------------
+# CHAT HISTORY
+# ----------------------------
 @app.get("/chat-history")
 def chat_history():
     if not os.path.exists(CHAT_LOG):
@@ -391,22 +359,14 @@ def chat_history():
     with open(CHAT_LOG, "r") as f:
         for line in f:
             if line.startswith("USER:"):
-                history.append({
-                    "role": "user",
-                    "text": line.replace("USER:", "").strip()
-                })
+                history.append({"role": "user", "text": line.replace("USER:", "").strip()})
             elif line.startswith("AI:"):
-                history.append({
-                    "role": "ai",
-                    "text": line.replace("AI:", "").strip()
-                })
+                history.append({"role": "ai", "text": line.replace("AI:", "").strip()})
 
     return {"history": history[-40:]}
-
 
 # ----------------------------
 # UI
 # ----------------------------
 UI_PATH = f"{BASE_PATH}/ui"
 app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")
-
