@@ -76,7 +76,6 @@ async function startRecording() {
   } catch (err) {
     console.error(err);
 
-    // ✅ FIXED: proper secure context check
     if (!window.isSecureContext) {
       status.innerText = "❌ Mic blocked (secure context required)";
     } else {
@@ -91,7 +90,7 @@ function stopRecording() {
   status.innerText = "Uploading...";
 }
 
-// 🔥 WEBM → WAV conversion (unchanged, correct)
+// 🔥 WEBM → WAV conversion (unchanged)
 async function convertToWav(blob) {
   const audioCtx = new AudioContext();
 
@@ -142,3 +141,47 @@ function writeString(view, offset, string) {
     view.setUint8(offset + i, string.charCodeAt(i));
   }
 }
+
+// ----------------------------
+// CHAT HISTORY UI (FIXED SCROLL LOGIC ONLY)
+// ----------------------------
+async function loadChat() {
+  try {
+    const box = document.getElementById("chatBox");
+
+    // ✅ remember if user was near bottom BEFORE refresh
+    const isNearBottom =
+      box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+
+    const res = await fetch(window.location.origin + "/chat-history");
+    const data = await res.json();
+
+    box.innerHTML = "";
+
+    data.history.forEach(msg => {
+      const div = document.createElement("div");
+
+      if (msg.role === "user") {
+        div.className = "msg-user";
+        div.textContent = "YOU: " + msg.text;
+      } else {
+        div.className = "msg-ai";
+        div.textContent = "AI: " + msg.text;
+      }
+
+      box.appendChild(div);
+    });
+
+    // ✅ ONLY auto-scroll if user already at bottom
+    if (isNearBottom) {
+      box.scrollTop = box.scrollHeight;
+    }
+
+  } catch (err) {
+    console.error("Chat load failed", err);
+  }
+}
+
+// auto refresh
+setInterval(loadChat, 2000);
+loadChat();
