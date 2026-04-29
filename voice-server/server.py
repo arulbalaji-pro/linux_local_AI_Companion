@@ -35,7 +35,14 @@ WHISPER_PATH = f"{BASE_PATH}/whisper.cpp/build/bin/whisper-cli"
 WHISPER_MODEL = f"{BASE_PATH}/whisper.cpp/models/ggml-tiny.en.bin"
 
 PIPER_PATH = f"{BASE_PATH}/piper/piper"
-PIPER_MODEL = f"{BASE_PATH}/piper/en_US-lessac-medium.onnx"
+
+#commenting most generic AI robotic style piper voice model
+#PIPER_MODEL = f"{BASE_PATH}/piper/en_US-lessac-medium.onnx"
+
+#enabling more human like piper voice model
+PIPER_MODEL = f"{BASE_PATH}/piper/en_US-hfc_female-medium.onnx"
+
+#PIPER_MODEL = f"{BASE_PATH}/piper/en_US-amy-medium.onnx"
 
 EMOTION_AUDIO_DIR = f"{BASE_PATH}/voice-server/emotional-audios"
 
@@ -371,8 +378,35 @@ async def voice(file: UploadFile = File(...)):
     return FileResponse(final_audio, media_type="audio/wav")
 
 
+# -----------------------------------------
+# UI Enhancement - Display Chat Logs on UI
+# -----------------------------------------
+@app.get("/chat-history")
+def chat_history():
+    if not os.path.exists(CHAT_LOG):
+        return {"history": []}
+
+    history = []
+
+    with open(CHAT_LOG, "r") as f:
+        for line in f:
+            if line.startswith("USER:"):
+                history.append({
+                    "role": "user",
+                    "text": line.replace("USER:", "").strip()
+                })
+            elif line.startswith("AI:"):
+                history.append({
+                    "role": "ai",
+                    "text": line.replace("AI:", "").strip()
+                })
+
+    return {"history": history[-40:]}
+
+
 # ----------------------------
 # UI
 # ----------------------------
 UI_PATH = f"{BASE_PATH}/ui"
 app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")
+
