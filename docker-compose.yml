@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  linux_ai_companion:
+    build: .
+    container_name: linux_ai_companion
+
+    ports:
+      - "5000:5000"
+
+    volumes:
+      - .:/app   # (optional dev sync)
+
+    restart: unless-stopped

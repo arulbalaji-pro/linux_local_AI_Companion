@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AI Chat Mode</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      color: #00ff66;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    h2 {
+      text-align: center;
+      margin: 10px;
+      text-shadow: 0 0 5px #00ff66;
+    }
+
+    #chatBox {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      border-top: 1px solid #00ff66;
+      border-bottom: 1px solid #00ff66;
+    }
+
+    .msg-user { color: #00ffff; margin: 5px 0; }
+    .msg-ai { color: #ffcc66; margin: 5px 0; }
+
+    #inputBox {
+      display: flex;
+      padding: 10px;
+      gap: 10px;
+    }
+
+    input {
+      flex: 1;
+      padding: 10px;
+      background: black;
+      color: #00ff66;
+      border: 1px solid #00ff66;
+      outline: none;
+    }
+
+    button {
+      background: transparent;
+      border: 1px solid #00ff66;
+      color: #00ff66;
+      padding: 10px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #00ff66;
+      color: black;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>AI Chat Mode</h2>
+
+  <div id="chatBox"></div>
+
+  <!-- ✅ FIX: use form instead of raw input -->
+  <form id="chatForm">
+    <div id="inputBox">
+      <input id="textInput" placeholder="Type message..." autocomplete="off" />
+      <button type="submit">Send</button>
+    </div>
+  </form>
+
+  <script>
+    const chatBox = document.getElementById("chatBox");
+    const textInput = document.getElementById("textInput");
+    const chatForm = document.getElementById("chatForm");
+
+    // ✅ BEST FIX: works on PC + mobile keyboards
+    chatForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      sendMessage();
+    });
+
+    async function loadChat() {
+      const res = await fetch("/chat-history");
+      const data = await res.json();
+
+      const isNearBottom =
+        chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 80;
+
+      chatBox.innerHTML = "";
+
+      (data.history || []).forEach(msg => {
+        const div = document.createElement("div");
+
+        if (msg.role === "user") {
+          div.className = "msg-user";
+          div.innerText = "🧍 You: " + msg.text;
+        } else {
+          div.className = "msg-ai";
+          div.innerText = "🤖 AI: " + msg.text;
+        }
+
+        chatBox.appendChild(div);
+      });
+
+      if (isNearBottom) {
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+    }
+
+    async function sendMessage() {
+      const text = textInput.value.trim();
+      if (!text) return;
+
+      textInput.value = "";
+
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ message: text })
+      });
+
+      const data = await res.json();
+
+      const div = document.createElement("div");
+      div.className = "msg-ai";
+      div.innerText = "🤖 AI: " + (data.reply || "error");
+
+      chatBox.appendChild(div);
+
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    setInterval(loadChat, 2000);
+    loadChat();
+  </script>
+
+</body>
+</html>

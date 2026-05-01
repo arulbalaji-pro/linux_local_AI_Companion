@@ -1,12 +1,19 @@
-# Python
-venv/
-__pycache__/
-*.pyc
+# =========================
+# AI models (VERY HEAVY)
+# =========================
+*.llamafile
 
-# OS junk
-.DS_Store
+# =========================
+# docker backups
+# =========================
+*.tar.gz
 
-# local logs
-*.log
-whisper.cpp/
+# =========================
+# piper binaries (FULL)
+# =========================
 piper/
+
+# =========================
+# whisper compiled binary
+# =========================
+whisper-cli

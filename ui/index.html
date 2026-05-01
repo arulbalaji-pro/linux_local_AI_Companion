@@ -79,6 +79,29 @@
       );
       pointer-events: none;
     }
+
+  #chatBox {
+  width: 90%;
+  max-width: 500px;
+  height: 200px;
+  margin: 0 auto 20px auto;
+  border: 1px solid #00ff66;
+  border-radius: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  text-align: left;
+  background: rgba(0, 255, 102, 0.05);
+}
+
+.msg-user {
+  color: #00ffff;
+  margin-bottom: 5px;
+}
+
+.msg-ai {
+  color: #ffcc66;
+  margin-bottom: 10px;
+}
   </style>
 </head>
 
@@ -86,12 +109,20 @@
 
   <h2>Linux AI Companion</h2>
 
+  <div id="chatBox"></div>
+
   <button id="recordBtn">Start Recording</button>
+
+  <!-- NEW BUTTONS -->
+  <br><br>
+
+<button id="clearAudioBtn">Remove Audio Logs</button>
+<button id="clearChatBtn">Remove Chat History</button>
+
   <p id="status">Idle</p>
 
   <audio id="player" controls></audio>
 
-  <script src="app.js"></script>
+  <script src="/ui/app.js"></script>
 
 </body>
-</html>
