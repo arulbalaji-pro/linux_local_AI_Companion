@@ -145,8 +145,10 @@ git clone https://github.com/arulbalaji-pro/linux_local_AI_Companion.git && cd l
 1. User speaks into microphone
 2. Whisper.cpp converts speech → text
 3. Local LLM generates response
-4. Piper converts response → speech
-5. Emotional cues may be injected
+4. Chat Logs between User and AI is logged for memory.
+5. Cool Down count initiated at every Emotional Audio cue outburst.
+6. Piper converts response → speech
+7. Emotional cues may be injected into the piper speech.
 
 All processing happens **locally**.
 
@@ -180,9 +182,9 @@ pip install python-multipart
 
 This project is experimental and for personal/educational use.
 
-* AI has no real emotions or awareness
+* AI has no real awareness
 * Runs fully offline
-* Responses may be inaccurate
+* Responses may be inaccurate sometimes
 * Not for critical use
 * Emotional cues are synthetic
 
