@@ -122,28 +122,32 @@ def get_emotion_audio(action: str):
 def allow_emotion(text: str):
     global EMOTION_COOLDOWN
 
+    log("EMOTION", f"COOLDOWN STATUS: {EMOTION_COOLDOWN}")
+
     if EMOTION_COOLDOWN > 0:
         EMOTION_COOLDOWN -= 1
         return False
 
-    t = text.lower()
+    # Find all content between asterisks: e.g., *smiles warmly* -> "smiles warmly"
+    actions = re.findall(r"\*([^*]+)\*", text.lower())
+    
+    # Check if any of those actions contain our trigger words (smile, laugh, etc.)
+    has_audio_trigger = False
+    for action_text in actions:
+        if any(trigger in action_text for trigger in EMOTION_MAP.keys()):
+            has_audio_trigger = True
+            break
 
-    if any(k in t for k in ["joke", "funny", "haha"]):
-        chance = 0.60
-    elif any(k in t for k in ["love", "cute", "miss", "flirt"]):
-        chance = 0.75
-    elif any(k in t for k in ["linux", "code", "docker", "error"]):
-        chance = 0.08
-    else:
-        chance = EMOTION_BASE_CHANCE
+    if not has_audio_trigger:
+        # If the text is serious OR has an action like *nods* (not in our audio list)
+        # We stay at 0 and wait for a proper joke/smile.
+        log("EMOTION", "Ready at 0, but no audio-mapped emotion detected. Waiting...")
+        return True 
 
-    roll = random.random() < chance
-
-    if roll:
-        EMOTION_COOLDOWN = 6
-
-    return roll
-
+    # COOLDOWN is 0 AND a valid trigger (like *smiles warmly*) was found
+    EMOTION_COOLDOWN = random.randint(2, 5)
+    log("EMOTION", f"OUTBURST TRIGGERED! Resetting cooldown to {EMOTION_COOLDOWN}.")
+    return True
 
 # ----------------------------
 # AUDIO NORMALIZATION
@@ -394,7 +398,11 @@ async def voice(file: UploadFile = File(...)):
             raw_reply = reply
 
             # always clean emotions (DO NOT condition this)
-            reply = re.sub(r"\*(laughs|smiles|giggles|sighs)([^*]*)\*", "", reply).strip()
+            #reply = re.sub(r"\*(laughs|smiles|giggles|sighs)([^*]*)\*", "", reply).strip()
+	    
+	    # <--- CHANGE 2: INSERT THE COOLDOWN LOGIC HERE
+            if not allow_emotion(reply):
+                reply = re.sub(r"\*([^*]+)\*", "", reply).strip()
 
             log("EMOTION", f"RAW: {raw_reply}")
             log("EMOTION", f"FILTERED: {reply}")
@@ -480,9 +488,13 @@ def chat(req: dict):
 
         # CLEAN EMOTIONS FOR CHAT OUTPUT
         reply = reply.replace("<|eot_id|>", "").strip() or "..."
+		
+	# INSERT THE COOLDOWN LOGIC HERE
+        if not allow_emotion(reply):
+            reply = re.sub(r"\*([^*]+)\*", "", reply).strip()
 
         # FINAL FILTER (THIS IS THE IMPORTANT PART)
-        reply = re.sub(r"\*(laughs|smiles|giggles|winks|sighs)\*", "", reply).strip()
+        #reply = re.sub(r"\*(laughs|smiles|giggles|winks|sighs)\*", "", reply).strip()
 
         save_turn(user_text, reply)
         return {"reply": reply}

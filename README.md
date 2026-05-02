@@ -33,7 +33,7 @@ For beginners or quick setup — no manual installation needed.
 
 Download the packaged AI system:
 
-https://mega.nz/file/u9xlVYBI#CVBvGgsrGGsXuEhprGuCBNbnzzxC-g3E1StspKq1KVU
+https://mega.nz/file/K1g2GZ5C#k9NEtp_2WUpI4o0b6zHoklgZEl4WQLLqawmwWyGljPc
 
 ---
 
