@@ -18,14 +18,7 @@ Built for privacy, experimentation, and offline AI usage.
 
 ---
 
-## 📺 Installation Demo
-
-Watch the full demo here:
-https://www.youtube.com/watch?v=ix-plCzcE6s
-
----
-
-## 🐳 Easy Docker Setup (No Build Required)
+## 🐳 Easy Docker Installation Setup (No Build Required)
 
 For beginners or quick setup — no manual installation needed.
 
@@ -75,6 +68,13 @@ AI COMPANION DOCKER CONTROL PANEL
 
 * Select **4 → Load Image**
 * Then select **3 → Restart Container**
+
+---
+
+## 📺 Normal Installation Demo (Tough for Novice and dependencies should be installed manually.)
+
+Watch the full demo here:
+https://www.youtube.com/watch?v=ix-plCzcE6s
 
 ---
 
