@@ -71,13 +71,6 @@ AI COMPANION DOCKER CONTROL PANEL
 
 ---
 
-## 📺 Normal Installation Demo (Tough for Novice and dependencies should be installed manually.)
-
-Watch the full demo here:
-https://www.youtube.com/watch?v=ix-plCzcE6s
-
----
-
 ### ⚠️ Requirements
 
 * Docker installed
@@ -91,6 +84,13 @@ https://www.youtube.com/watch?v=ix-plCzcE6s
 * This method avoids manual dependency setup
 * Ideal for non-technical users
 * Everything runs pre-configured inside Docker
+
+---
+
+## 📺 Manual Installation Demo (Not Recommended for Normal Users - dependencies should be installed manually.)
+
+Watch the full installation video here:
+https://www.youtube.com/watch?v=ix-plCzcE6s
 
 ---
 
