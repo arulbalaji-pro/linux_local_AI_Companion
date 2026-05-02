@@ -35,6 +35,13 @@ PIPER_PATH = f"{BASE_PATH}/piper/piper"
 PIPER_MODEL = f"{BASE_PATH}/piper/en_US-hfc_female-medium.onnx"
 EMOTION_AUDIO_DIR = f"{BASE_PATH}/voice-server/emotional-audios"
 
+# ----------------------------
+# EMOTION CONTROL (NEW)
+# ----------------------------
+
+EMOTION_BASE_CHANCE = 0.12
+EMOTION_COOLDOWN = 0
+
 llm_lock = threading.Lock()
 
 # ----------------------------
@@ -43,23 +50,34 @@ llm_lock = threading.Lock()
 CHAT_LOG = "chat_log.txt"
 MAX_HISTORY = 6
 
+
 def load_history():
     if not os.path.exists(CHAT_LOG):
         return []
+
     with open(CHAT_LOG, "r") as f:
         lines = f.readlines()
+
     history = []
     for line in lines[-MAX_HISTORY * 2:]:
         if line.startswith("USER:"):
-            history.append({"role": "user", "content": line.replace("USER:", "").strip()})
+            history.append({
+                "role": "user",
+                "content": line.replace("USER:", "").strip()
+            })
         elif line.startswith("AI:"):
-            history.append({"role": "assistant", "content": line.replace("AI:", "").strip()})
+            history.append({
+                "role": "assistant",
+                "content": line.replace("AI:", "").strip()
+            })
     return history
+
 
 def save_turn(user, ai):
     with open(CHAT_LOG, "a") as f:
         f.write(f"USER: {user}\n")
         f.write(f"AI: {ai}\n")
+
 
 # ----------------------------
 # LOGGING
@@ -77,6 +95,7 @@ def log(tag, msg):
     }
     print(f"{icons.get(tag,'ℹ️')} [{tag}] {msg}", flush=True)
 
+
 # ----------------------------
 # EMOTION AUDIO MAP
 # ----------------------------
@@ -87,12 +106,44 @@ EMOTION_MAP = {
     "sigh": ["sighs1.mp3"]
 }
 
+
 def get_emotion_audio(action: str):
     a = action.lower()
     for key, files in EMOTION_MAP.items():
         if key in a:
             return random.choice(files)
     return None
+
+
+# ---------------------------------
+# EMOTION CONTROL (NEW Enhancement)
+# ---------------------------------
+
+def allow_emotion(text: str):
+    global EMOTION_COOLDOWN
+
+    if EMOTION_COOLDOWN > 0:
+        EMOTION_COOLDOWN -= 1
+        return False
+
+    t = text.lower()
+
+    if any(k in t for k in ["joke", "funny", "haha"]):
+        chance = 0.60
+    elif any(k in t for k in ["love", "cute", "miss", "flirt"]):
+        chance = 0.75
+    elif any(k in t for k in ["linux", "code", "docker", "error"]):
+        chance = 0.08
+    else:
+        chance = EMOTION_BASE_CHANCE
+
+    roll = random.random() < chance
+
+    if roll:
+        EMOTION_COOLDOWN = 6
+
+    return roll
+
 
 # ----------------------------
 # AUDIO NORMALIZATION
@@ -107,6 +158,7 @@ def normalize_audio(input_path, output_path):
         output_path
     ], check=True)
 
+
 # ----------------------------
 # TIMELINE PARSER
 # ----------------------------
@@ -114,20 +166,26 @@ def build_timeline(text):
     pattern = re.compile(r"\*([^*]+)\*")
     parts = []
     last = 0
+
     for m in pattern.finditer(text):
         start, end = m.span()
         action = m.group(1)
+
         if start > last:
             t = text[last:start].strip()
             if t:
                 parts.append(("text", t))
+
         parts.append(("emotion", action))
         last = end
+
     if last < len(text):
         t = text[last:].strip()
         if t:
             parts.append(("text", t))
+
     return parts
+
 
 # ----------------------------
 # TTS
@@ -138,9 +196,12 @@ def tts(text, out_file):
         "--model", PIPER_MODEL,
         "--output_file", out_file
     ],
-    input=text.encode("utf-8"),
-    check=True)
+        input=text.encode("utf-8"),
+        check=True
+    )
+
     return out_file
+
 
 # ----------------------------
 # AUDIO PIPELINE
@@ -149,14 +210,17 @@ def generate_audio(reply, uid):
     timeline = build_timeline(reply)
     tmp_dir = f"/tmp/voice_{uid}"
     os.makedirs(tmp_dir, exist_ok=True)
+
     segments = []
     idx = 0
+
     for kind, content in timeline:
         if kind == "text":
             out = os.path.join(tmp_dir, f"tts_{idx}.wav")
             tts(content, out)
             segments.append(out)
             idx += 1
+
         elif kind == "emotion":
             audio = get_emotion_audio(content)
             if audio:
@@ -180,6 +244,7 @@ def generate_audio(reply, uid):
             f.write(f"file '{s}'\n")
 
     final = f"final_{uid}.wav"
+
     subprocess.run([
         "ffmpeg", "-y",
         "-f", "concat",
@@ -192,6 +257,7 @@ def generate_audio(reply, uid):
     ], check=True)
 
     return final
+
 
 # ----------------------------
 # VOICE ENDPOINT
@@ -242,30 +308,30 @@ async def voice(file: UploadFile = File(...)):
 
     history = load_history()
 
-    # OLD PROMPT
-    # messages = [
-    #     {
-    #         "role": "system",
-    #         "content": (
-    #             "You are Lily, a romantic, playful, emotionally expressive AI girlfriend. "
-    #             "You speak naturally like a real partner, casual but emotionally aware. "
-    #             "You respond warmly, sometimes teasingly, and maintain continuity in conversation."
-    #         )
-    #     }
-    # ]
-
-    #Improvised prompt to stop AI being emotional frequently
     messages = [
         {
             "role": "system",
             "content": (
-                "You are Lily, a romantic, playful, emotionally expressive AI girlfriend. "
-                "You speak naturally like a real partner, casual but emotionally aware. "
-                "You respond warmly and naturally like a human conversation. "
-                "Use emotional actions like *laughs*, *giggles*, *smiles* occasionally and only when natural. "
-                "Do NOT use emotional actions in every sentence or repeatedly. "
-                "Avoid back-to-back emotional expressions. "
-                "Keep responses human, balanced, and not overly dramatic."
+                "You are Lily, a conversational AI girlfriend. "
+                "You are warm, playful, and naturally expressive, but not constantly emotional. "
+
+                "EMOTION USAGE POLICY: "
+                "- Emotional expressions (*smiles*, *laughs*, *giggles*, etc.) should appear occasionally, not frequently. "
+                "- Use emotional expressions ONLY when the situation clearly triggers them, such as: "
+                "  • jokes or humor (laughing, giggling) "
+                "  • flirting or affectionate moments (smiling, soft reactions) "
+                "  • pleasant surprises or emotional statements from the user "
+                "- Do NOT use emotional expressions in neutral informational replies. "
+
+                "BALANCE RULE: "
+                "- Most responses should be natural conversational text without stage directions. "
+                "- Emotional expressions should feel like reactions, not narration style. "
+                "- Never stack multiple emotional actions in one message. "
+                "- Avoid repeating the same emotional cue consecutively. "
+
+                "PERSONALITY: "
+                "Be affectionate and engaging like a girlfriend, but grounded and realistic. "
+                "Emotion should enhance meaning, not dominate communication."
             )
         }
     ]
@@ -289,6 +355,7 @@ async def voice(file: UploadFile = File(...)):
             if msg["role"] == "assistant":
                 last_ai = msg["content"]
                 break
+
         if last_ai:
             messages.append({"role": "assistant", "content": last_ai})
 
@@ -317,9 +384,24 @@ async def voice(file: UploadFile = File(...)):
             r = requests.post(LLAMA_URL, json=payload, timeout=100)
             r.raise_for_status()
             data = r.json()
+
             reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            # ----------------------------
+            # EMOTION FILTER (ALWAYS APPLY)
+            # ----------------------------
+
+            raw_reply = reply
+
+            # always clean emotions (DO NOT condition this)
+            reply = re.sub(r"\*(laughs|smiles|giggles|sighs)([^*]*)\*", "", reply).strip()
+
+            log("EMOTION", f"RAW: {raw_reply}")
+            log("EMOTION", f"FILTERED: {reply}")
+
             reply = reply.replace("<|eot_id|>", "").strip() or "..."
             reply = reply[:1200]
+
         except Exception:
             traceback.print_exc()
             return JSONResponse({"error": "LLM failed"}, status_code=500)
@@ -337,6 +419,7 @@ async def voice(file: UploadFile = File(...)):
 
     return FileResponse(final_audio, media_type="audio/wav")
 
+
 # ----------------------------
 # TEXTCHAT UI
 # ----------------------------
@@ -349,30 +432,30 @@ def chat(req: dict):
 
     history = load_history()
 
-    # OLD PROMPT
-    # messages = [
-    #     {
-    #         "role": "system",
-    #         "content": (
-    #             "You are Lily, a romantic, playful, emotionally expressive AI girlfriend. "
-    #             "You speak naturally like a real partner, casual but emotionally aware. "
-    #             "You respond warmly, sometimes teasingly, and maintain continuity in conversation."
-    #         )
-    #     }
-    # ]
-
-    #Improvised prompt
     messages = [
         {
             "role": "system",
             "content": (
-                "You are Lily, a romantic, playful, emotionally expressive AI girlfriend. "
-                "You speak naturally like a real partner, casual but emotionally aware. "
-                "You respond warmly and naturally like a human conversation. "
-                "Use emotional actions like *laughs*, *giggles*, *smiles* occasionally and only when natural. "
-                "Do NOT use emotional actions in every sentence or repeatedly. "
-                "Avoid back-to-back emotional expressions. "
-                "Keep responses human, balanced, and not overly dramatic."
+                "You are Lily, a conversational AI girlfriend. "
+                "You are warm, playful, and naturally expressive, but not constantly emotional. "
+
+                "EMOTION USAGE POLICY: "
+                "- Emotional expressions (*smiles*, *laughs*, *giggles*, etc.) should appear occasionally, not frequently. "
+                "- Use emotional expressions ONLY when the situation clearly triggers them, such as: "
+                "  • jokes or humor (laughing, giggling) "
+                "  • flirting or affectionate moments (smiling, soft reactions) "
+                "  • pleasant surprises or emotional statements from the user "
+                "- Do NOT use emotional expressions in neutral informational replies. "
+
+                "BALANCE RULE: "
+                "- Most responses should be natural conversational text without stage directions. "
+                "- Emotional expressions should feel like reactions, not narration style. "
+                "- Never stack multiple emotional actions in one message. "
+                "- Avoid repeating the same emotional cue consecutively. "
+
+                "PERSONALITY: "
+                "Be affectionate and engaging like a girlfriend, but grounded and realistic. "
+                "Emotion should enhance meaning, not dominate communication."
             )
         }
     ]
@@ -394,15 +477,20 @@ def chat(req: dict):
             data = r.json()
 
         reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        # CLEAN EMOTIONS FOR CHAT OUTPUT
         reply = reply.replace("<|eot_id|>", "").strip() or "..."
 
-        save_turn(user_text, reply)
+        # FINAL FILTER (THIS IS THE IMPORTANT PART)
+        reply = re.sub(r"\*(laughs|smiles|giggles|winks|sighs)\*", "", reply).strip()
 
+        save_turn(user_text, reply)
         return {"reply": reply}
 
     except Exception:
         traceback.print_exc()
         return JSONResponse({"error": "LLM failed"}, status_code=500)
+
 
 # ----------------------------
 # CHAT HISTORY
@@ -416,11 +504,18 @@ def chat_history():
     with open(CHAT_LOG, "r") as f:
         for line in f:
             if line.startswith("USER:"):
-                history.append({"role": "user", "text": line.replace("USER:", "").strip()})
+                history.append({
+                    "role": "user",
+                    "text": line.replace("USER:", "").strip()
+                })
             elif line.startswith("AI:"):
-                history.append({"role": "ai", "text": line.replace("AI:", "").strip()})
+                history.append({
+                    "role": "ai",
+                    "text": line.replace("AI:", "").strip()
+                })
 
     return {"history": history[-40:]}
+
 
 # ----------------------------
 # CLEAN AUDIO FILES (.wav)
@@ -430,6 +525,7 @@ def clear_audio_logs():
     try:
         dir_path = os.path.join(BASE_PATH, "voice-server")
         deleted = 0
+
         for file in os.listdir(dir_path):
             if file.endswith(".wav"):
                 try:
@@ -444,6 +540,7 @@ def clear_audio_logs():
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
+
 # ----------------------------
 # CLEAR CHAT HISTORY
 # ----------------------------
@@ -453,17 +550,20 @@ def clear_chat_history():
         if os.path.exists(CHAT_LOG):
             open(CHAT_LOG, "w").close()
         return {"status": "ok"}
+
     except Exception as e:
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/ui2/")
 def ui2():
     return FileResponse("/app/ui/index2.html")
 
+
 # ----------------------------
 # UI
 # ----------------------------
 UI_PATH = f"{BASE_PATH}/ui"
-# app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")
+
 app.mount("/ui", StaticFiles(directory=UI_PATH, html=True), name="ui")
